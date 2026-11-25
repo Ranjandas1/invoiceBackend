@@ -15,7 +15,7 @@ const port = process.env.PORT || 4000;
 const uploadsDir = path.join(process.cwd(), "uploads");
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-const defaultOrigins = ["http://localhost:5173", "http://localhost:3000"];
+const defaultOrigins = ["http://localhost:5173", "http://localhost:3000", "https://invoicefrontend-neon.vercel.app"];
 const configuredOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(",")
       .map((s) => s.trim())
