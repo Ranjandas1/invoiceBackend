@@ -4,7 +4,7 @@ const businessProfileSchema = new mongoose.Schema(
   {
     owner: { type: String, required: true, index: true },
 
-    businessName: { type: String, required: true },
+    businessName: { type: String, required: true, trim: true },
     email: {
       type: String,
       required: false,
@@ -25,11 +25,14 @@ const businessProfileSchema = new mongoose.Schema(
     signatureOwnerTitle: { type: String, required: false, default: "" },
 
     defaultTaxPercent: { type: Number, required: false, default: 0 }, // US sales tax varies by state
+    isDefault: { type: Boolean, default: false },
   },
   {
     timestamps: true,
   }
 );
+
+businessProfileSchema.index({ owner: 1, isDefault: -1, updatedAt: -1 });
 
 const BusinessProfile =
   mongoose.models.BusinessProfile ||

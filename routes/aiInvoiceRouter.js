@@ -1,7 +1,7 @@
 import express from "express";
 import { GoogleGenAI } from "@google/genai";
 import { requireAuth } from "../middleware/requireAuth.js";
-import BusinessProfile from "../models/businessProfileModel.js";
+import { findActiveBusinessProfile } from "../controllers/businessProfileController.js";
 import Invoice from "../models/invoiceModel.js";
 
 const aiInvoiceRouter = express.Router();
@@ -576,7 +576,7 @@ aiInvoiceRouter.post("/generate", requireAuth, async (req, res) => {
       });
     }
 
-    const profile = await BusinessProfile.findOne({ owner: req.userId }).lean();
+    const profile = await findActiveBusinessProfile(req.userId);
     const fullPrompt =
       mode === "enhance"
         ? buildEnhancePrompt(trimmedPrompt, profile, sanitizedUserData)

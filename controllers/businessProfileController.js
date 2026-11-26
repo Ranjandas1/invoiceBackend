@@ -40,7 +40,13 @@ function uploadedFilesToUrls(req) {
   return urls;
 }
 
-// Create (or update existing) business profile for the authenticated user
+export async function findActiveBusinessProfile(userId) {
+  return BusinessProfile.findOne({ owner: userId })
+    .sort({ isDefault: -1, updatedAt: -1 })
+    .lean();
+}
+
+// Create a new business profile for the authenticated user
 export async function createBusinessProfile(req, res) {
   try {
     const userId = req.userId;
@@ -52,15 +58,39 @@ export async function createBusinessProfile(req, res) {
     }
 
     const body = req.body || {};
+    const businessName =
+      typeof body.businessName === "string" ? body.businessName.trim() : "";
+
+    if (!businessName) {
+      return res.status(400).json({
+        success: false,
+        message: "Business name is required",
+      });
+    }
+
     const fileUrls = uploadedFilesToUrls(req);
+    const existingCount = await BusinessProfile.countDocuments({
+      owner: userId,
+    });
+    const makeDefault =
+      existingCount === 0 ||
+      body.isDefault === true ||
+      body.isDefault === "true";
+
+    if (makeDefault && existingCount > 0) {
+      await BusinessProfile.updateMany(
+        { owner: userId, isDefault: true },
+        { $set: { isDefault: false } }
+      );
+    }
 
     const payload = {
       owner: userId,
-      businessName: body.businessName || "ABC Solutions",
+      businessName,
       email: body.email || "",
       address: body.address || "",
       phone: body.phone || "",
-      taxId: body.taxId || body.gst || "", // Support legacy GST field
+      taxId: body.taxId || body.gst || "",
       logoUrl: fileUrls.logoUrl || normalizeAssetUrl(body.logoUrl) || null,
       stampUrl: fileUrls.stampUrl || normalizeAssetUrl(body.stampUrl) || null,
       signatureUrl:
@@ -68,27 +98,14 @@ export async function createBusinessProfile(req, res) {
       signatureOwnerName: body.signatureOwnerName || "",
       signatureOwnerTitle: body.signatureOwnerTitle || "",
       defaultTaxPercent: toSafeNumber(body.defaultTaxPercent, 0),
+      isDefault: makeDefault,
     };
-
-    const existing = await BusinessProfile.findOne({ owner: userId });
-    if (existing) {
-      const updated = await BusinessProfile.findByIdAndUpdate(
-        existing._id,
-        { $set: payload },
-        { new: true, runValidators: true }
-      );
-      return res.status(200).json({
-        success: true,
-        data: updated,
-        message: "Business Profile Updated",
-      });
-    }
 
     const saved = await BusinessProfile.create(payload);
     return res.status(201).json({
       success: true,
       data: saved,
-      message: "Business Profile Created",
+      message: "Business profile created",
     });
   } catch (err) {
     console.error("CreateBusiness Profile error:", err);
@@ -130,12 +147,21 @@ export async function updateBusinessProfile(req, res) {
     }
 
     const update = {};
-    if (body.businessName !== undefined) update.businessName = body.businessName;
+    if (body.businessName !== undefined) {
+      const trimmedName = String(body.businessName).trim();
+      if (!trimmedName) {
+        return res.status(400).json({
+          success: false,
+          message: "Business name is required",
+        });
+      }
+      update.businessName = trimmedName;
+    }
     if (body.email !== undefined) update.email = body.email;
     if (body.address !== undefined) update.address = body.address;
     if (body.phone !== undefined) update.phone = body.phone;
     if (body.taxId !== undefined) update.taxId = body.taxId;
-    else if (body.gst !== undefined) update.taxId = body.gst; // Support legacy GST field
+    else if (body.gst !== undefined) update.taxId = body.gst;
 
     if (fileUrls.logoUrl) update.logoUrl = fileUrls.logoUrl;
     else {
@@ -165,6 +191,14 @@ export async function updateBusinessProfile(req, res) {
       update.defaultTaxPercent = toSafeNumber(body.defaultTaxPercent, 0);
     }
 
+    if (body.isDefault === true || body.isDefault === "true") {
+      await BusinessProfile.updateMany(
+        { owner: userId, _id: { $ne: existing._id }, isDefault: true },
+        { $set: { isDefault: false } }
+      );
+      update.isDefault = true;
+    }
+
     const updated = await BusinessProfile.findByIdAndUpdate(id, update, {
       new: true,
       runValidators: true,
@@ -173,7 +207,7 @@ export async function updateBusinessProfile(req, res) {
     return res.status(200).json({
       success: true,
       data: updated,
-      message: "Profile updated",
+      message: "Business profile updated",
     });
   } catch (err) {
     console.error("UpdateBusiness Profile error:", err);
@@ -184,7 +218,35 @@ export async function updateBusinessProfile(req, res) {
   }
 }
 
-// Get current user's business profile
+// Get all business profiles for the authenticated user
+export async function getMyBusinessProfiles(req, res) {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const profiles = await BusinessProfile.find({ owner: userId })
+      .sort({ isDefault: -1, updatedAt: -1 })
+      .lean();
+
+    return res.status(200).json({
+      success: true,
+      data: profiles,
+    });
+  } catch (err) {
+    console.error("GetMyBusinessProfiles error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+}
+
+// Get current user's active business profile
 export async function getMyBusinessProfile(req, res) {
   try {
     const userId = req.userId;
@@ -195,7 +257,7 @@ export async function getMyBusinessProfile(req, res) {
       });
     }
 
-    const profile = await BusinessProfile.findOne({ owner: userId }).lean();
+    const profile = await findActiveBusinessProfile(userId);
     if (!profile) {
       return res.status(204).end();
     }
@@ -206,6 +268,94 @@ export async function getMyBusinessProfile(req, res) {
     });
   } catch (err) {
     console.error("GetMyBusiness Profile error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+}
+
+// Switch active/default business profile
+export async function setActiveBusinessProfile(req, res) {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const { id } = req.params;
+    const target = await BusinessProfile.findOne({ _id: id, owner: userId });
+    if (!target) {
+      return res.status(404).json({
+        success: false,
+        message: "Business profile not found",
+      });
+    }
+
+    await BusinessProfile.updateMany(
+      { owner: userId, _id: { $ne: target._id }, isDefault: true },
+      { $set: { isDefault: false } }
+    );
+
+    target.isDefault = true;
+    await target.save();
+
+    return res.status(200).json({
+      success: true,
+      data: target,
+      message: "Active business profile switched",
+    });
+  } catch (err) {
+    console.error("SetActiveBusinessProfile error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+}
+
+// Delete a business profile
+export async function deleteBusinessProfile(req, res) {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    const { id } = req.params;
+    const deleted = await BusinessProfile.findOneAndDelete({
+      _id: id,
+      owner: userId,
+    });
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: "Business profile not found",
+      });
+    }
+
+    if (deleted.isDefault) {
+      const nextProfile = await BusinessProfile.findOne({ owner: userId }).sort({
+        updatedAt: -1,
+      });
+      if (nextProfile) {
+        nextProfile.isDefault = true;
+        await nextProfile.save();
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Business profile deleted",
+    });
+  } catch (err) {
+    console.error("DeleteBusinessProfile error:", err);
     return res.status(500).json({
       success: false,
       message: "Server Error",

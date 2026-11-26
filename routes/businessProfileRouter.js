@@ -6,7 +6,10 @@ import path from "path";
 import { requireAuth } from "../middleware/requireAuth.js";
 import {
   createBusinessProfile,
+  deleteBusinessProfile,
   getMyBusinessProfile,
+  getMyBusinessProfiles,
+  setActiveBusinessProfile,
   updateBusinessProfile,
 } from "../controllers/businessProfileController.js";
 
@@ -49,8 +52,11 @@ const uploadFields = upload.fields([
   { name: "signatureNameMeta", maxCount: 1 },
 ]);
 
+businessProfileRouter.get("/", getMyBusinessProfiles);
+businessProfileRouter.get("/me", getMyBusinessProfile);
 businessProfileRouter.post("/", uploadFields, createBusinessProfile);
 businessProfileRouter.put("/:id", uploadFields, updateBusinessProfile);
-businessProfileRouter.get("/me", getMyBusinessProfile);
+businessProfileRouter.patch("/:id/active", setActiveBusinessProfile);
+businessProfileRouter.delete("/:id", deleteBusinessProfile);
 
 export default businessProfileRouter;

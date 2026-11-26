@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import path from "path";
 import Invoice from "../models/invoiceModel.js";
-import BusinessProfile from "../models/businessProfileModel.js";
+import { findActiveBusinessProfile } from "./businessProfileController.js";
 
 function getApiBase(req) {
   if (process.env.API_BASE) {
@@ -211,7 +211,7 @@ export async function createInvoice(req, res) {
         !body.fromGst);
 
     const profile = shouldApplyProfile
-      ? await BusinessProfile.findOne({ owner: userId }).lean()
+      ? await findActiveBusinessProfile(userId)
       : null;
 
     const taxPercent = toSafeTaxPercent(
