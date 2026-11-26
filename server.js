@@ -28,53 +28,28 @@ if (!fs.existsSync(uploadsDir)) {
 // CORS CONFIGURATION
 // ===============================
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  ...(process.env.FRONTEND_URL || "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean),
-];
+const defaultOrigins = ["http://localhost:5173", "http://localhost:3000", "https://invoicefrontend-neon.vercel.app"];
+const configuredOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  : [];
+const allowedOrigins = Array.from(
+  new Set([...defaultOrigins, ...configuredOrigins])
+);
 
-const corsOptions = {
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    console.error("Blocked CORS origin:", origin);
-    return callback(new Error("Not allowed by CORS"));
-  },
-
-  methods: [
-    "GET",
-    "POST",
-    "PUT",
-    "PATCH",
-    "DELETE",
-    "OPTIONS",
-  ],
-
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-  ],
-
-  credentials: true,
-  optionsSuccessStatus: 204,
-};
-
-// CORS must run before all routes and authentication
-app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options(/.*/, cors(corsOptions));
-
-// ===============================
-// BODY PARSING
-// ===============================
-
+// MIDDLEWARE
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
 
